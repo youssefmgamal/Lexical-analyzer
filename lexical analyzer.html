@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lexical Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            background-color: #eef2ff; 
+        }
+        .mono-output {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+        .token-display {
+            display: inline-block;
+            padding: 4px 8px;
+            margin: 4px;
+            border-radius: 6px;
+            font-weight: 600;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            transition: transform 0.1s;
+        }
+        .token-keyword { background-color: #fce7f3; color: #be185d; border: 1px solid #f472b6; } /* Pink/Rose */
+        .token-identifier { background-color: #dbeafe; color: #1d4ed8; border: 1px solid #60a5fa; } /* Blue */
+        .token-number { background-color: #d1fae5; color: #059669; border: 1px solid #34d399; } /* Green */
+        .token-operator { background-color: #fef2f2; color: #ef4444; border: 1px solid #f87171; } /* Red */
+        .token-symbol { background-color: #f3e8ff; color: #7c3aed; border: 1px solid #a78bfa; } /* Purple */
+        .token-error { background-color: #fecaca; color: #b91c1c; border: 2px solid #ef4444; animation: pulse-error 0.5s infinite alternate; }
+
+        @keyframes pulse-error {
+            from { opacity: 1; }
+            to { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-10">
+
+    <div class="max-w-4xl mx-auto bg-white p-6 md:p-8 rounded-xl shadow-2xl border-4 border-indigo-600">
+        <h1 class="text-3xl font-extrabold text-indigo-700 mb-2 border-b-4 border-pink-400 pb-2">
+            Lexical Analyzer (Scanner) Demonstration
+        </h1>
+        <p class="mb-6 text-gray-600">
+            This tool converts raw source code input into a stream of categorized tokens, demonstrating the first phase of a compiler.
+        </p>
+
+        <div class="mb-8 p-4 bg-indigo-50 rounded-lg border border-indigo-300">
+            <label for="codeInput" class="block text-lg font-semibold text-indigo-700 mb-2">Enter Source Code:</label>
+            <textarea id="codeInput" 
+                      rows="4" 
+                      class="w-full p-3 border-2 border-indigo-400 rounded-lg mono-output resize-none focus:outline-none focus:ring-4 focus:ring-pink-500"
+                      placeholder="e.g., while ( count < 100 ) { total = a * 5; }">
+while ( count < 100 ) { total = a * 5; }
+            </textarea>
+            <button id="analyzeButton" class="mt-4 bg-pink-500 text-white px-6 py-3 rounded-lg hover:bg-pink-600 transition duration-150 font-bold shadow-md w-full md:w-auto">
+                Analyze Code
+            </button>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 p-4 bg-gray-50 rounded-lg border-2 border-gray-300">
+                <h2 class="text-xl font-bold text-gray-800 mb-3 border-b pb-1">Token Stream Output</h2>
+                <div id="tokenStream" class="flex flex-wrap p-2 min-h-[50px] bg-white rounded-md border mono-output">
+                </div>
+            </div>
+
+            <div class="p-4 bg-yellow-50 rounded-lg border-2 border-yellow-400">
+                <h2 class="text-xl font-bold text-gray-800 mb-3 border-b pb-1">Token Rules</h2>
+                <ul class="text-sm space-y-2 mono-output">
+                    <li class="flex items-center">
+                        <span class="token-display token-keyword text-xs py-1 px-2">KEYWORD</span> 
+                        <span class="ml-2">= if, while, else, var...</span>
+                    </li>
+                    <li class="flex items-center">
+                        <span class="token-display token-identifier text-xs py-1 px-2">ID</span> 
+                        <span class="ml-2">= start with letter, followed by letters/digits</span>
+                    </li>
+                    <li class="flex items-center">
+                        <span class="token-display token-number text-xs py-1 px-2">NUM</span> 
+                        <span class="ml-2">= one or more digits</span>
+                    </li>
+                    <li class="flex items-center">
+                        <span class="token-display token-operator text-xs py-1 px-2">OP</span> 
+                        <span class="ml-2">= +, -, *, /, =</span>
+                    </li>
+                    <li class="flex items-center">
+                        <span class="token-display token-symbol text-xs py-1 px-2">SYMBOL</span> 
+                        <span class="ml-2">= (, ), {, }, ;</span>
+                    </li>
+                    <li class="flex items-center text-red-700 font-semibold">
+                        <span class="token-display token-error text-xs py-1 px-2">ERROR</span> 
+                        <span class="ml-2">= Unrecognized sequence</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+    const KEYWORDS = new Set(['if', 'while', 'else', 'var', 'const', 'function', 'return']);
+    const OPERATORS = new Set(['+', '-', '*', '/', '=']);
+    const SYMBOLS = new Set(['(', ')', '{', '}', ';', '<', '>']);
+    const WHITESPACE = /\s/;
+
+    const codeInput = document.getElementById('codeInput');
+    const analyzeButton = document.getElementById('analyzeButton');
+    const tokenStream = document.getElementById('tokenStream');
+
+    function isLetter(char) {
+        return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z');
+    }
+
+    function isDigit(char) {
+        return char >= '0' && char <= '9';
+    }
+
+    function createTokenHtml(type, lexeme) {
+        const className = `token-display token-${type}`;
+        const tokenName = type.toUpperCase().replace('-', '_');
+        return `<div class="${className} mono-output">
+            &lt;<span class="font-extrabold">${tokenName}</span>, ${lexeme}&gt;
+        </div>`;
+    }
+ 
+    function lexicalAnalysis(input) {
+        tokenStream.innerHTML = '';
+        let i = 0;
+        const tokens = [];
+
+        while (i < input.length) {
+            let char = input[i];
+
+            if (WHITESPACE.test(char)) {
+                i++;
+                continue;
+            }
+
+            if (isLetter(char)) {
+                let lexeme = '';
+                while (i < input.length && (isLetter(input[i]) || isDigit(input[i]))) {
+                    lexeme += input[i];
+                    i++;
+                }
+
+                if (KEYWORDS.has(lexeme)) {
+                    tokens.push(createTokenHtml('keyword', lexeme));
+                } else {
+                    tokens.push(createTokenHtml('identifier', lexeme));
+                }
+                continue;
+            }
+
+            if (isDigit(char)) {
+                let lexeme = '';
+                while (i < input.length && isDigit(input[i])) {
+                    lexeme += input[i];
+                    i++;
+                }
+                tokens.push(createTokenHtml('number', lexeme));
+                continue;
+            }
+
+            if (OPERATORS.has(char)) {
+                tokens.push(createTokenHtml('operator', char));
+                i++;
+                continue;
+            }
+            
+            if (SYMBOLS.has(char)) {
+                tokens.push(createTokenHtml('symbol', char));
+                i++;
+                continue;
+            }
+
+            tokens.push(createTokenHtml('error', char));
+            i++;
+        }
+       
+        tokenStream.innerHTML = tokens.join('');
+    }
+
+    analyzeButton.addEventListener('click', () => {
+        const code = codeInput.value;
+        lexicalAnalysis(code);
+    });
+    window.onload = () => {
+        analyzeButton.click();
+    };
+</script>
+</body>
+</html>
